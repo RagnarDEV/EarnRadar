@@ -11,4 +11,4 @@ preview_id = "6112efe58e214de6a51a365522e6cd12"
 crons = ["0 * * * *"]
 
 [vars]
-SITE_URL = "https://earnradar-work.manasa.workers.dev"
+SITE_URL = "https://earnradar.manasa.workers.dev"
