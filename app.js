@@ -4,7 +4,7 @@
 /* ==========================================
    STATE
 ========================================== */
-const API_BASE = 'https://earnradar-work.manasa.workers.dev';
+const API_BASE = 'https://earnradar.manasa.workers.dev';
 
 async function loadFromAPI() {
   try {
