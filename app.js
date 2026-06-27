@@ -35,9 +35,12 @@ const State = {
 /* ==========================================
    INIT
 ========================================== */
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadFromAPI(); // ← أضف هذا السطر أولاً
   applyTheme();
   initFiltered();
+  // ... باقي الكود
+});
   renderTicker();
   renderStats();
   renderNewToday();
