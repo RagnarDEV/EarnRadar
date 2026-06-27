@@ -4,20 +4,6 @@
 /* ==========================================
    STATE
 ========================================== */
-const API_BASE = 'https://earnradar.manasa.workers.dev';
-
-async function loadFromAPI() {
-  try {
-    const res = await fetch(`${API_BASE}/api/opportunities`);
-    const data = await res.json();
-    if (data && data.length > 0) {
-      // استبدل البيانات الثابتة بالبيانات الحية
-      OPPORTUNITIES.push(...data);
-    }
-  } catch(e) {
-    console.log('Using static data as fallback');
-  }
-}
 const State = {
   currentLang: 'ar',
   currentTheme: localStorage.getItem('theme') || 'dark',
@@ -35,12 +21,9 @@ const State = {
 /* ==========================================
    INIT
 ========================================== */
-document.addEventListener('DOMContentLoaded', async () => {
-  await loadFromAPI(); // ← أضف هذا السطر أولاً
+document.addEventListener('DOMContentLoaded', () => {
   applyTheme();
   initFiltered();
-  // ... باقي الكود
-});
   renderTicker();
   renderStats();
   renderNewToday();
