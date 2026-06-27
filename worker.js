@@ -15,7 +15,45 @@ export default {
       return new Response(null, { headers: corsHeaders });
     }
 
-    // Routes
+    // ==========================================
+    // FRONTEND ROUTES (خدمة ملفات الواجهة من الـ KV)
+    // ==========================================
+    
+    // 1. المسار الرئيسي للموقع أو صفحة index.html
+    if (url.pathname === '/' || url.pathname === '/index.html') {
+      const htmlContent = await env.EARN_KV.get('index.html'); 
+      if (htmlContent) {
+        return new Response(htmlContent, {
+          headers: { 'Content-Type': 'text/html; charset=utf-8' }
+        });
+      } else {
+        return new Response("مرحباً بك في EarnRadar! يرجى رفع ملف index.html إلى الـ KV أو تضمينه في الكود.", {
+          headers: { 'Content-Type': 'text/html; charset=utf-8' }
+        });
+      }
+    }
+
+    // 2. مسار ملف التنسيق style.css
+    if (url.pathname === '/style.css') {
+      const css = await env.EARN_KV.get('style.css');
+      if (css) {
+        return new Response(css, { headers: { 'Content-Type': 'text/css; charset=utf-8' } });
+      }
+      return new Response('/* style.css not found */', { status: 404, headers: { 'Content-Type': 'text/css' } });
+    }
+
+    // 3. مسار ملف التشغيل app.js
+    if (url.pathname === '/app.js') {
+      const js = await env.EARN_KV.get('app.js');
+      if (js) {
+        return new Response(js, { headers: { 'Content-Type': 'application/javascript; charset=utf-8' } });
+      }
+      return new Response('// app.js not found', { status: 404, headers: { 'Content-Type': 'application/javascript' } });
+    }
+
+    // ==========================================
+    // BACKEND API ROUTES
+    // ==========================================
     if (url.pathname === '/api/opportunities') {
       return handleOpportunities(request, env, corsHeaders);
     }
@@ -26,6 +64,7 @@ export default {
       return handleStats(env, corsHeaders);
     }
 
+    // في حال عدم مطابقة أي مسار
     return new Response(JSON.stringify({ error: 'Not found' }), {
       status: 404,
       headers: corsHeaders
@@ -231,13 +270,11 @@ async function fetchRemoteOK() {
    PRODUCT HUNT FETCH
 ========================================== */
 async function fetchProductHunt() {
-  // Using public RSS feed (no auth needed)
   const res = await fetch('https://www.producthunt.com/feed', {
     headers: { 'User-Agent': 'EarnRadar/1.0' }
   });
   const text = await res.text();
 
-  // Simple RSS parse
   const items = [];
   const regex = /<item>([\s\S]*?)<\/item>/g;
   let match;
@@ -250,8 +287,11 @@ async function fetchProductHunt() {
     const pubDate = (/<pubDate>(.*?)<\/pubDate>/.exec(item) || [])[1] || '';
 
     if (title && link) {
+      // تعديل هنا: تجنب استخدام Buffer ليتوافق مع بيئة Cloudflare Workers
+      const cleanSlug = link.split('/').pop() || Math.random().toString(36).substring(2, 7);
+      
       items.push({
-        id: `ph_${Buffer.from(link).toString('base64').substring(0, 10)}`,
+        id: `ph_${cleanSlug}`,
         title,
         description: desc || title,
         fullDescription: desc || title,
@@ -291,7 +331,6 @@ async function handleOpportunities(request, env, headers) {
     if (cached) {
       return new Response(cached, { headers });
     }
-    // Trigger fresh fetch if no cache
     await runDataFetch(env);
     const fresh = await env.EARN_KV.get('opportunities');
     return new Response(fresh || '[]', { headers });
