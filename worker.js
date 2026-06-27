@@ -1,6 +1,11 @@
 // worker.js — EarnRadar Cloudflare Worker
-// Fetches opportunities from free APIs and caches in KV
-// Deploy: wrangler deploy
+// Fetches opportunities from free APIs and automatically serves frontend assets
+// Deploy: Automating via GitHub Actions / Wrangler
+
+// استيراد ملفات الواجهة تلقائياً أثناء عملية البناء والرفع
+import htmlContent from './index.html';
+import cssContent from './style.css';
+import jsContent from './app.js';
 
 export default {
   async fetch(request, env, ctx) {
@@ -16,39 +21,28 @@ export default {
     }
 
     // ==========================================
-    // FRONTEND ROUTES (خدمة ملفات الواجهة من الـ KV)
+    // AUTOMATIC FRONTEND ROUTING
     // ==========================================
     
-    // 1. المسار الرئيسي للموقع أو صفحة index.html
+    // عرض الصفحة الرئيسية تلقائياً
     if (url.pathname === '/' || url.pathname === '/index.html') {
-      const htmlContent = await env.EARN_KV.get('index.html'); 
-      if (htmlContent) {
-        return new Response(htmlContent, {
-          headers: { 'Content-Type': 'text/html; charset=utf-8' }
-        });
-      } else {
-        return new Response("مرحباً بك في EarnRadar! يرجى رفع ملف index.html إلى الـ KV أو تضمينه في الكود.", {
-          headers: { 'Content-Type': 'text/html; charset=utf-8' }
-        });
-      }
+      return new Response(htmlContent, {
+        headers: { 'Content-Type': 'text/html; charset=utf-8' }
+      });
     }
 
-    // 2. مسار ملف التنسيق style.css
+    // عرض ملف الـ CSS تلقائياً
     if (url.pathname === '/style.css') {
-      const css = await env.EARN_KV.get('style.css');
-      if (css) {
-        return new Response(css, { headers: { 'Content-Type': 'text/css; charset=utf-8' } });
-      }
-      return new Response('/* style.css not found */', { status: 404, headers: { 'Content-Type': 'text/css' } });
+      return new Response(cssContent, {
+        headers: { 'Content-Type': 'text/css; charset=utf-8' }
+      });
     }
 
-    // 3. مسار ملف التشغيل app.js
+    // عرض ملف الـ JS تلقائياً
     if (url.pathname === '/app.js') {
-      const js = await env.EARN_KV.get('app.js');
-      if (js) {
-        return new Response(js, { headers: { 'Content-Type': 'application/javascript; charset=utf-8' } });
-      }
-      return new Response('// app.js not found', { status: 404, headers: { 'Content-Type': 'application/javascript' } });
+      return new Response(jsContent, {
+        headers: { 'Content-Type': 'application/javascript; charset=utf-8' }
+      });
     }
 
     // ==========================================
@@ -64,7 +58,6 @@ export default {
       return handleStats(env, corsHeaders);
     }
 
-    // في حال عدم مطابقة أي مسار
     return new Response(JSON.stringify({ error: 'Not found' }), {
       status: 404,
       headers: corsHeaders
@@ -287,9 +280,9 @@ async function fetchProductHunt() {
     const pubDate = (/<pubDate>(.*?)<\/pubDate>/.exec(item) || [])[1] || '';
 
     if (title && link) {
-      // تعديل هنا: تجنب استخدام Buffer ليتوافق مع بيئة Cloudflare Workers
+      // تم استبدال الـ Buffer المتعارض ليعتمد على جزء الرابط المميز كـ ID فريد ومتوافق
       const cleanSlug = link.split('/').pop() || Math.random().toString(36).substring(2, 7);
-      
+
       items.push({
         id: `ph_${cleanSlug}`,
         title,
