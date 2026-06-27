@@ -11,11 +11,4 @@ preview_id = "6112efe58e214de6a51a365522e6cd12"
 crons = ["0 * * * *"]
 
 [vars]
-SITE_URL = "https://earnradar.manasa.workers.dev"
-
-# القواعد المضافة لتضمين وقراءة ملفات الفرونت إند تلقائياً كـ نصوص أثناء البناء
-[rules]
-[[rules]]
-type = "Text"
-handlers = ["*.html", "*.css", "*.js"]
-fallthrough = true
+SITE_URL = "https://earnradar.pages.dev"
