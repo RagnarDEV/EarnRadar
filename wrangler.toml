@@ -7,8 +7,8 @@ compatibility_date = "2024-01-01"
 # KV Namespace for caching fetched data
 [[kv_namespaces]]
 binding = "EARN_KV"
-id = "YOUR_KV_NAMESPACE_ID"
-preview_id = "YOUR_PREVIEW_KV_ID"
+id = "6112efe58e214de6a51a365522e6cd12"
+preview_id = "6112efe58e214de6a51a365522e6cd12"
 
 # Scheduled cron — run every hour
 [triggers]
