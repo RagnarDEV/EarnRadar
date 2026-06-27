@@ -12,3 +12,10 @@ crons = ["0 * * * *"]
 
 [vars]
 SITE_URL = "https://earnradar.manasa.workers.dev"
+
+# القواعد المضافة لتضمين وقراءة ملفات الفرونت إند تلقائياً كـ نصوص أثناء البناء
+[rules]
+[[rules]]
+type = "Text"
+handlers = ["*.html", "*.css", "*.js"]
+fallthrough = true
