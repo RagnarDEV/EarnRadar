@@ -1,24 +1,14 @@
-# wrangler.toml — Cloudflare Workers Configuration
-
-name = "earnradar-work" 
+name = "earnradar-work"
 main = "worker.js"
 compatibility_date = "2024-01-01"
 
-# KV Namespace for caching fetched data
 [[kv_namespaces]]
 binding = "EARN_KV"
 id = "6112efe58e214de6a51a365522e6cd12"
 preview_id = "6112efe58e214de6a51a365522e6cd12"
 
-# Scheduled cron — run every hour
 [triggers]
 crons = ["0 * * * *"]
 
-# Environment variables
 [vars]
-SITE_URL = "https://earnradar.pages.dev"
-
-# Routes
-[[routes]]
-pattern = "earnradar.pages.dev/api/*"
-zone_name = "pages.dev"
+SITE_URL = "https://earnradar.manasa.workers.dev"
