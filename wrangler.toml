@@ -1,12 +1,14 @@
 # wrangler.toml — EarnRadar Worker
 # ====================================
 # ملف إعدادات Cloudflare Workers
-# بدون routes - بدون pages - بدون أخطاء
 # ====================================
 
 name = "earnradar-work"
 main = "worker.js"
 compatibility_date = "2024-01-01"
+
+# تفعيل ضغط الكود لتجنب تجاوز حد 1MB في الخطة المجانية
+minify = true
 
 # KV Namespace للتخزين المؤقت
 [[kv_namespaces]]
