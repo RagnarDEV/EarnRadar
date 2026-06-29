@@ -1,7 +1,6 @@
 // ================================================================
 //  EarnRadar — Cloudflare Worker v3.0
-//  Fix: No nested template literals — HTML uses string concat
-//  Client JS served at /app.js as separate route
+//  Fixed: Escaping Quotes and Loose Equality for String/Number IDs
 // ================================================================
 
 export default {
@@ -44,7 +43,7 @@ export default {
       });
     }
 
-    // Client JS — served separately to avoid nested template literal issues
+    // Client JS
     if (path === '/app.js') {
       return new Response(getAppJS(), {
         headers: { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'public, max-age=300' }
@@ -266,16 +265,13 @@ function getSW() {
 }
 
 // ================================================================
-//  HTML — uses string concatenation ONLY (no template literals)
-//  This avoids ALL nested backtick issues
+//  HTML
 // ================================================================
 function getHTML() {
   const cats = getCategories();
-
   const chipHTML = cats.map(function(c) {
     return '<button class="chip" data-cat="' + c.id + '">' + c.icon + ' <span class="cn" data-id="' + c.id + '">' + c.en + '</span></button>';
   }).join('');
-
   const css = getCSS();
 
   return '<!DOCTYPE html>\n' +
@@ -423,9 +419,6 @@ function getHTML() {
 '</body></html>';
 }
 
-// ================================================================
-//  CSS
-// ================================================================
 function getCSS() {
   return ':root{--bg:#0A0E1A;--bg2:#111827;--card:#1A2035;--card2:#1E2640;--accent:#00D4AA;--aglow:rgba(0,212,170,.15);--adark:#00A882;--ember:#FF6B35;--gold:#FFB800;--txt:#F0F4FF;--txt2:#8B9CC8;--muted:#4A5578;--bdr:rgba(255,255,255,.07);--bdra:rgba(0,212,170,.3);--r:14px;--rs:8px;--sh:0 4px 24px rgba(0,0,0,.4);--shg:0 0 30px rgba(0,212,170,.1);--far:\'Cairo\',sans-serif;--fen:\'Space Grotesk\',sans-serif;--tr:.2s cubic-bezier(.4,0,.2,1)}' +
 '[data-theme=light]{--bg:#F0F4FF;--bg2:#E8EDF8;--card:#fff;--card2:#F5F8FF;--txt:#0A0E1A;--txt2:#3D4A6B;--muted:#8B9CC8;--bdr:rgba(0,0,0,.08);--sh:0 4px 24px rgba(0,0,0,.08)}' +
@@ -557,9 +550,6 @@ function getCSS() {
 '::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:var(--card);border-radius:2px}';
 }
 
-// ================================================================
-//  CATEGORIES
-// ================================================================
 function getCategories() {
   return [
     { id:'freelance', en:'Freelance',   ar:'\u0639\u0645\u0644 \u062d\u0631',       fr:'Freelance',    tr:'Serbest \u00c7al\u0131\u015fma', es:'Freelance',   icon:'\uD83C\uDFA8' },
@@ -580,8 +570,7 @@ function getCategories() {
 }
 
 // ================================================================
-//  CLIENT JS — returned as plain string (NO template literals)
-//  Data is injected via JSON.stringify at request time
+//  CLIENT JS (Carefully escaped quotes & robust ID loose equality)
 // ================================================================
 function getAppJS() {
   const opps  = JSON.stringify(getStaticOpps());
@@ -603,8 +592,6 @@ function getAppJS() {
   ]);
   const msTags = JSON.stringify(['freelance','passive income','remote work','AI tools','cashback','crypto','surveys','referrals','grants','side hustle','affiliate','testing']);
 
-  // Return plain string — this function does NOT use template literals internally
-  // so there is NO nesting issue at all
   return 'var OPPS=' + opps + ';\n' +
 'var CATS=' + cats + ';\n' +
 'var TR=' + trans + ';\n' +
@@ -698,9 +685,9 @@ function getAppJS() {
 'function payLabel(p){var m={paypal:"PayPal",bank:"Bank Transfer",crypto:"Crypto",gift:"Gift Cards",payoneer:"Payoneer",check:"Check"};return m[p]||p;}\n' +
 'function devLabel(d){if(d==="both")return T("mobileDeskop");if(d==="mobile")return T("mobileOnly");return T("desktopOnly");}\n' +
 'function makeCard(o){\n' +
-'  var saved=S.saved.includes(o.id);\n' +
+'  var saved=S.saved.some(function(x){return x==o.id;});\n' +
 '  var stars="";\n' +
-'  for(var i=1;i<=5;i++)stars+=\'<span class="\'+(i<=Math.round(o.rating||0)?"on":"")+\'" data-star="\'+i+\'" onclick="rateOpp(\'+o.id+\',\'+i+\',event)">\u2605</span>\';\n' +
+'  for(var i=1;i<=5;i++)stars+=\'<span class="\'+(i<=Math.round(o.rating||0)?"on":"")+\'" data-star="\'+i+\'" onclick="rateOpp(\\\''+o.id+\'\\\',\'+i+\',event)">\u2605</span>\';\n' +
 '  var cn=o.country||"";if(cn.length>14)cn=cn.substring(0,14)+"...";\n' +
 '  return \'<div class="card" data-id="\'+o.id+\'">\'+\n' +
 '    \'<div class="card-thumb"><span>\'+o.emoji+\'</span><span class="card-st \'+sClass(o.status)+\'">\'+sLabel(o.status)+\'</span></div>\'+\n' +
@@ -708,9 +695,9 @@ function getAppJS() {
 '    \'<div class="card-meta"><span class="meta earn">\u{1F4B0} \'+o.earnings+\'</span><span class="meta trust">\u2B50 \'+o.trustScore+\'/10</span><span class="meta">\u{1F30D} \'+cn+\'</span><span class="meta">\'+( o.isFree?"Free":"Paid")+\'</span></div></div>\'+\n' +
 '    \'<div class="stars" data-oid="\'+o.id+\'">\'+stars+\'<span style="margin-left:4px;font-size:.68rem;color:var(--muted)">\'+( o.rating||0)+\' (\'+((o.reviews||0).toLocaleString())+\')</span></div>\'+\n' +
 '    \'<div class="card-btns">\'+\n' +
-'    \'<button class="cbtn" onclick="shareOpp(\'+o.id+\',event)">\'+T("share")+\'</button>\'+\n' +
-'    \'<button class="cbtn" id="sbtn\'+o.id+\'" onclick="toggleSaved(\'+o.id+\',event)">\'+( saved?T("saved"):T("save"))+\'</button>\'+\n' +
-'    \'<button class="cbtn" onclick="openCmp(\'+o.id+\',event)">\'+T("compare")+\'</button></div>\'+\n' +
+'    \'<button class="cbtn" onclick="shareOpp(\\\''+o.id+\'\\\',event)">\'+T("share")+\'</button>\'+\n' +
+'    \'<button class="cbtn" id="sbtn\'+o.id+\'" onclick="toggleSaved(\\\''+o.id+\'\\\',event)">\'+( saved?T("saved"):T("save"))+\'</button>\'+\n' +
+'    \'<button class="cbtn" onclick="openCmp(\\\''+o.id+\'\\\',event)">\'+T("compare")+\'</button></div>\'+\n' +
 '    \'<div class="card-foot"><span class="card-cat">\'+catIcon(o.category)+\' \'+catName(o.category)+\'</span><span class="card-stars">\u2605 \'+( o.rating||0)+\'</span><span class="card-time">\'+timeAgo(o.publishedAt)+\'</span></div></div>\';\n' +
 '}\n' +
 'function skel(){return \'<div class="skel-card"><div class="skel skel-img"></div><div class="skel-body"><div class="skel skel-line w75"></div><div class="skel skel-line w100"></div><div class="skel skel-line w50"></div></div></div>\';}\n' +
@@ -752,13 +739,13 @@ function getAppJS() {
 '  g.querySelectorAll(".card").forEach(function(card){\n' +
 '    card.addEventListener("click",function(e){\n' +
 '      if(e.target.closest(".card-btns")||e.target.closest(".stars"))return;\n' +
-'      openModal(parseInt(card.dataset.id));\n' +
+'      openModal(card.dataset.id);\n' +
 '    });\n' +
 '  });\n' +
 '}\n' +
 'function renderSavedView(){\n' +
 '  var g=document.getElementById("savedGrid"),ns=document.getElementById("noSaved");\n' +
-'  var items=S.opps.filter(function(o){return S.saved.includes(o.id);});\n' +
+'  var items=S.opps.filter(function(o){return S.saved.some(function(x){return x==o.id;});});\n' +
 '  if(!items.length){if(g)g.innerHTML="";if(ns)ns.style.display="block";return;}\n' +
 '  if(ns)ns.style.display="none";\n' +
 '  if(g){g.innerHTML=items.map(makeCard).join("");addListeners(g);}\n' +
@@ -768,14 +755,14 @@ function getAppJS() {
 '  var l=document.getElementById("topRatedList");if(!l)return;\n' +
 '  var items=S.opps.slice().sort(function(a,b){return(b.rating||0)-(a.rating||0);}).slice(0,5);\n' +
 '  var rk=["rk-g","rk-s","rk-b","",""];\n' +
-'  l.innerHTML=items.map(function(o,i){return \'<div class="tr-item" onclick="openModal(\'+o.id+\')">\'+\'<div class="tr-rank \'+rk[i]+\'">\'+( i+1)+\'</div><div class="tr-info"><div class="tr-name">\'+o.title+\'</div><div class="tr-earn">\'+o.earnings+\'</div></div><span style="font-size:.7rem;color:var(--gold)">\u2605\'+( o.rating||0)+\'</span></div>\';}).join("");\n' +
+'  l.innerHTML=items.map(function(o,i){return \'<div class="tr-item" onclick="openModal(\\\''+o.id+\'\\\')">\'+\'<div class="tr-rank \'+rk[i]+\'">\'+( i+1)+\'</div><div class="tr-info"><div class="tr-name">\'+o.title+\'</div><div class="tr-earn">\'+o.earnings+\'</div></div><span style="font-size:.7rem;color:var(--gold)">\u2605\'+( o.rating||0)+\'</span></div>\';}).join("");\n' +
 '}\n' +
 'function renderCats(){\n' +
 '  var c=document.getElementById("catStats");if(!c)return;\n' +
 '  var counts={};\n' +
 '  S.opps.forEach(function(o){counts[o.category]=(counts[o.category]||0)+1;});\n' +
 '  var max=Math.max.apply(null,Object.values(counts).concat([1]));\n' +
-'  c.innerHTML=CATS.slice(0,8).map(function(cat){return \'<div class="cat-row" onclick="filterCat(\'+(\'"\'+cat.id+\'"\')+\')"><span class="cat-ic">\'+cat.icon+\'</span><div style="flex:1"><div style="display:flex;justify-content:space-between"><span class="cat-nm">\'+( cat[S.lang]||cat.en)+\'</span><span class="cat-cnt">\'+( counts[cat.id]||0)+\'</span></div><div class="cat-bar-wrap"><div class="cat-bar" style="width:\'+( ((counts[cat.id]||0)/max*100))+\'%"></div></div></div></div>\';}).join("");\n' +
+'  c.innerHTML=CATS.slice(0,8).map(function(cat){return \'<div class="cat-row" onclick="filterCat(\\\'\'+cat.id+\'\\\')"><span class="cat-ic">\'+cat.icon+\'</span><div style="flex:1"><div style="display:flex;justify-content:space-between"><span class="cat-nm">\'+( cat[S.lang]||cat.en)+\'</span><span class="cat-cnt">\'+( counts[cat.id]||0)+\'</span></div><div class="cat-bar-wrap"><div class="cat-bar" style="width:\'+( ((counts[cat.id]||0)/max*100))+\'%"></div></div></div></div>\';}).join("");\n' +
 '}\n' +
 'function renderSrcs(){\n' +
 '  var l=document.getElementById("sourcesList");if(!l)return;\n' +
@@ -783,7 +770,7 @@ function getAppJS() {
 '}\n' +
 'function renderMS(){\n' +
 '  var el=document.getElementById("msTags");if(!el)return;\n' +
-'  el.innerHTML=MS_TAGS.map(function(t){return \'<span class="ms-tag" onclick="quickSearch(\'+(\'"\'+t+\'"\')+\')">\'+t+\'</span>\';}).join("");\n' +
+'  el.innerHTML=MS_TAGS.map(function(t){return \'<span class="ms-tag" onclick="quickSearch(\\\'\'+t+\'\\\')">\'+t+\'</span>\';}).join("");\n' +
 '}\n' +
 'function renderTicker(){\n' +
 '  var inner=document.getElementById("ticker");if(!inner)return;\n' +
@@ -800,8 +787,8 @@ function getAppJS() {
 '  document.getElementById("oppOfDay").onclick=function(){openModal(opp.id);};\n' +
 '}\n' +
 'function openModal(id){\n' +
-'  var o=S.opps.find(function(x){return x.id===id;});if(!o)return;\n' +
-'  var saved=S.saved.includes(id);\n' +
+'  var o=S.opps.find(function(x){return x.id==id;});if(!o)return;\n' +
+'  var saved=S.saved.some(function(x){return x==id;});\n' +
 '  var pay=(o.payment||[]).map(payLabel).join(", ");\n' +
 '  var tags=(o.tags||[]).map(function(t){return \'<span class="tag">#\'+t+\'</span>\';}).join("");\n' +
 '  document.getElementById("modalContent").innerHTML=\n' +
@@ -825,9 +812,9 @@ function getAppJS() {
 '    \'<div class="modal-tags">\'+tags+\'</div>\'+\n' +
 '    \'<div class="modal-actions">\'+\n' +
 '      \'<a href="\'+o.url+\'" target="_blank" rel="noopener noreferrer" class="btn-visit">\'+T("visitSite")+\'</a>\'+\n' +
-'      \'<button class="btn-ma" id="msbtn\'+id+\'" onclick="toggleSaved(\'+id+\',event)">\'+( saved?T("saved"):T("save"))+\'</button>\'+\n' +
-'      \'<button class="btn-ma" onclick="shareOpp(\'+id+\',event)">\'+T("share")+\'</button>\'+\n' +
-'      \'<button class="btn-ma" onclick="openCmp(\'+id+\',event)">\'+T("compare")+\'</button>\'+\n' +
+'      \'<button class="btn-ma" id="msbtn\'+id+\'" onclick="toggleSaved(\\\''+id+\'\\\',event)">\'+( saved?T("saved"):T("save"))+\'</button>\'+\n' +
+'      \'<button class="btn-ma" onclick="shareOpp(\\\''+id+\'\\\',event)">\'+T("share")+\'</button>\'+\n' +
+'      \'<button class="btn-ma" onclick="openCmp(\\\''+id+\'\\\',event)">\'+T("compare")+\'</button>\'+\n' +
 '    \'</div></div>\';\n' +
 '  document.getElementById("modalOverlay").classList.add("active");\n' +
 '  document.body.style.overflow="hidden";\n' +
@@ -835,15 +822,15 @@ function getAppJS() {
 'function closeModal(){document.getElementById("modalOverlay").classList.remove("active");document.body.style.overflow="";}\n' +
 'function toggleSaved(id,e){\n' +
 '  if(e)e.stopPropagation();\n' +
-'  var idx=S.saved.indexOf(id);\n' +
+'  var idx=S.saved.findIndex(function(x){return x==id;});\n' +
 '  if(idx>-1){S.saved.splice(idx,1);toast(S.lang==="ar"?"\u062a\u0645 \u0627\u0644\u0625\u0632\u0627\u0644\u0629":"Removed from saved");}\n' +
 '  else{S.saved.push(id);toast(S.lang==="ar"?"\u2705 \u062a\u0645 \u0627\u0644\u062d\u0641\u0638!":"\u2705 Saved!");}\n' +
 '  localStorage.setItem("savedOpps",JSON.stringify(S.saved));\n' +
-'  ["sbtn","msbtn"].forEach(function(p){var btn=document.getElementById(p+id);if(btn)btn.textContent=S.saved.includes(id)?T("saved"):T("save");});\n' +
+'  ["sbtn","msbtn"].forEach(function(p){var btn=document.getElementById(p+id);if(btn)btn.textContent=S.saved.some(function(x){return x==id;})?T("saved"):T("save");});\n' +
 '}\n' +
 'function shareOpp(id,e){\n' +
 '  if(e)e.stopPropagation();\n' +
-'  var o=S.opps.find(function(x){return x.id===id;});if(!o)return;\n' +
+'  var o=S.opps.find(function(x){return x.id==id;});if(!o)return;\n' +
 '  var txt=encodeURIComponent(o.title+" \u2014 "+o.earnings+"\\n"+o.url);\n' +
 '  document.getElementById("shareBtns").innerHTML=\n' +
 '    \'<button class="share-btn" onclick="window.open(\\\'https://wa.me/?text=\'+txt+\'\\\',\\\'_blank\\\')"><span>\uD83D\uDCAC</span>\'+T("shareWa")+\'</button>\'+\n' +
@@ -860,11 +847,11 @@ function getAppJS() {
 'function openCmp(id,e){\n' +
 '  if(e)e.stopPropagation();\n' +
 '  if(!S.cmpA){S.cmpA=id;toast(T("compareSelect"));return;}\n' +
-'  if(S.cmpA===id){S.cmpA=null;return;}\n' +
+'  if(S.cmpA==id){S.cmpA=null;return;}\n' +
 '  S.cmpB=id;renderCmp();\n' +
 '}\n' +
 'function renderCmp(){\n' +
-'  var a=S.opps.find(function(o){return o.id===S.cmpA;}),b=S.opps.find(function(o){return o.id===S.cmpB;});\n' +
+'  var a=S.opps.find(function(o){return o.id==S.cmpA;}),b=S.opps.find(function(o){return o.id==S.cmpB;});\n' +
 '  if(!a||!b)return;\n' +
 '  var fields=[[T("earnings"),a.earnings,b.earnings],[T("trust"),a.trustScore+"/10",b.trustScore+"/10"],[T("rating"),"\u2605"+(a.rating||0),"\u2605"+(b.rating||0)],[T("countries"),a.country,b.country],[T("devices"),devLabel(a.devices),devLabel(b.devices)],[T("minWithdraw"),a.minWithdraw,b.minWithdraw],[T("difficulty"),a.difficulty,b.difficulty],[T("free"),a.isFree?"\u2705":"\u274C",b.isFree?"\u2705":"\u274C"]];\n' +
 '  document.getElementById("compareGrid").innerHTML=\n' +
@@ -907,7 +894,7 @@ function getAppJS() {
 '    if(!q){r.innerHTML="";return;}\n' +
 '    var matches=S.opps.filter(function(o){return o.title.toLowerCase().includes(q.toLowerCase())||(o.description||"").toLowerCase().includes(q.toLowerCase())||(o.tags||[]).some(function(t){return t.toLowerCase().includes(q.toLowerCase());});}).slice(0,6);\n' +
 '    if(!matches.length){r.innerHTML="<div style=\'color:var(--muted);text-align:center;padding:14px\'>"+T("noResults")+"</div>";return;}\n' +
-'    r.innerHTML=matches.map(function(o){return \'<div onclick="openModal(\'+o.id+\');closeSearch()" style="background:var(--card);border:1px solid var(--bdr);border-radius:var(--rs);padding:10px;cursor:pointer" onmouseover="this.style.borderColor=\\\'var(--bdra)\\\'" onmouseout="this.style.borderColor=\\\'var(--bdr)\\\'"><div style="font-size:.82rem;font-weight:600;margin-bottom:3px">\'+o.emoji+" "+o.title+"</div><div style=\'font-size:.7rem;color:var(--muted)\'>"+o.description.substring(0,70)+"...</div></div>";}).join("");\n' +
+'    r.innerHTML=matches.map(function(o){return \'<div onclick="openModal(\\\''+o.id+\'\\\');closeSearch()" style="background:var(--card);border:1px solid var(--bdr);border-radius:var(--rs);padding:10px;cursor:pointer" onmouseover="this.style.borderColor=\\\'var(--bdra)\\\'" onmouseout="this.style.borderColor=\\\'var(--bdr)\\\'"><div style="font-size:.82rem;font-weight:600;margin-bottom:3px">\'+o.emoji+" "+o.title+"</div><div style=\'font-size:.7rem;color:var(--muted)\'>"+o.description.substring(0,70)+"...</div></div>";}).join("");\n' +
 '  },300);\n' +
 '});\n' +
 'function closeSearch(){\n' +
