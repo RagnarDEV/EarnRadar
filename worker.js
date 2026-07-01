@@ -78,75 +78,466 @@ async function handleRate(request, env, cors) {
   } catch(e) {}
   return new Response(JSON.stringify({ok:true}), {headers:cors});
 }
+// ================================================================
+//  LIVE DATA SOURCES — 8 real free APIs for earning opportunities
+// ================================================================
+
 async function fetchSources(env) {
   if (!env.EARN_KV) return;
   const results = [];
-  try { results.push(...await fetchHN()); } catch(e) {}
-  try { results.push(...await fetchReddit()); } catch(e) {}
-  try { results.push(...await fetchRemoteOK()); } catch(e) {}
+  const log = [];
+
+  // Run all sources in parallel with individual error handling
+  const fetchers = [
+    ['RemoteOK',       fetchRemoteOK],
+    ['Remotive',       fetchRemotive],
+    ['Jobicy',         fetchJobicy],
+    ['HackerNews',     fetchHN],
+    ['Reddit',         fetchReddit],
+    ['WeWorkRemotely', fetchWWR],
+    ['CryptoJobs',     fetchCryptoJobs],
+    ['GitHub Bounties',fetchGitHubBounties],
+  ];
+
+  await Promise.allSettled(fetchers.map(async ([name, fn]) => {
+    try {
+      const items = await fn();
+      results.push(...items);
+      log.push(name + ':' + items.length);
+    } catch(e) {
+      log.push(name + ':ERR:' + e.message.substring(0,40));
+    }
+  }));
+
+  // Deduplicate by URL
   const seen = new Set();
-  const unique = results.filter(r => { if (seen.has(r.url)) return false; seen.add(r.url); return true; });
+  const unique = results.filter(r => {
+    if (!r.url || seen.has(r.url)) return false;
+    seen.add(r.url);
+    return true;
+  });
+
+  // Sort: newest first
+  unique.sort((a,b) => new Date(b.publishedAt) - new Date(a.publishedAt));
+
   if (unique.length > 0) {
-    await env.EARN_KV.put('opportunities', JSON.stringify(unique), {expirationTtl:7200});
+    await env.EARN_KV.put('opportunities', JSON.stringify(unique), { expirationTtl: 7200 });
     await env.EARN_KV.put('stats', JSON.stringify({
-      total:unique.length,
-      today:unique.filter(u=>new Date(u.publishedAt)>Date.now()-86400000).length,
-      sources:12,categories:14,lastUpdate:new Date().toISOString()
+      total: unique.length,
+      today: unique.filter(u => new Date(u.publishedAt) > Date.now() - 86400000).length,
+      sources: 8,
+      categories: 14,
+      lastUpdate: new Date().toISOString(),
+      log: log
     }));
   }
+  return unique.length;
 }
+
+// ── 1. RemoteOK — Remote jobs with real salaries ────────────────
+async function fetchRemoteOK() {
+  const res = await fetch('https://remoteok.com/api', {
+    headers: { 'User-Agent': 'EarnRadar/4.0 (earnradar.manasa.workers.dev)' }
+  });
+  const jobs = await res.json();
+
+  return jobs.slice(1).filter(j => j.position && j.company).slice(0, 20).map(j => {
+    const sal = j.salary_min && j.salary_max
+      ? '$' + Math.round(j.salary_min/1000) + 'k–$' + Math.round(j.salary_max/1000) + 'k/yr'
+      : j.salary_min ? '$' + Math.round(j.salary_min/1000) + 'k+/yr' : 'Competitive';
+
+    const tags = (j.tags || []).slice(0, 5);
+    const cat = tags.some(t => /design|ui|ux|figma/i.test(t)) ? 'freelance'
+      : tags.some(t => /ai|ml|data|python/i.test(t)) ? 'ai'
+      : tags.some(t => /crypto|web3|blockchain/i.test(t)) ? 'crypto'
+      : 'remote';
+
+    const desc = (j.description || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+    return {
+      id: 'rok_' + j.id,
+      title: j.position + ' at ' + j.company,
+      description: desc.substring(0, 200) || 'Remote job opportunity at ' + j.company,
+      fullDescription: desc.substring(0, 800) || 'Remote job opportunity at ' + j.company + '. Apply via RemoteOK.',
+      category: cat,
+      status: j.salary_min > 100000 ? 'recommended' : 'new',
+      emoji: '💻',
+      earnings: sal,
+      earningLevel: j.salary_min > 120000 ? 'high' : j.salary_min > 60000 ? 'medium' : 'low',
+      trustScore: 9.0,
+      rating: 4.3,
+      reviews: 0,
+      country: 'Worldwide (Remote)',
+      devices: 'desktop',
+      payment: ['bank'],
+      minWithdraw: 'Monthly salary',
+      isFree: true,
+      difficulty: j.position.toLowerCase().includes('senior') || j.position.toLowerCase().includes('lead') ? 'Advanced' : 'Medium',
+      timeRequired: 'Full-time',
+      url: j.url || 'https://remoteok.com',
+      tags: tags.length ? tags : ['remote', 'job'],
+      source: 'remoteok',
+      publishedAt: j.date ? new Date(j.date).toISOString() : new Date().toISOString(),
+      views: 0
+    };
+  });
+}
+
+// ── 2. Remotive — Curated remote jobs ───────────────────────────
+async function fetchRemotive() {
+  const res = await fetch('https://remotive.com/api/remote-jobs?limit=20', {
+    headers: { 'User-Agent': 'EarnRadar/4.0' }
+  });
+  const data = await res.json();
+  const jobs = data.jobs || [];
+
+  return jobs.slice(0, 20).map(j => {
+    const sal = j.salary ? j.salary : 'Competitive';
+    const cat = /design|ui|ux/i.test(j.category) ? 'freelance'
+      : /data|ai|ml/i.test(j.category) ? 'ai'
+      : /crypto|web3/i.test(j.category) ? 'crypto'
+      : 'remote';
+
+    const desc = (j.description || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+    return {
+      id: 'remotive_' + j.id,
+      title: j.title + ' at ' + j.company_name,
+      description: desc.substring(0, 200) || 'Remote job at ' + j.company_name,
+      fullDescription: desc.substring(0, 800) || 'Remote opportunity at ' + j.company_name,
+      category: cat,
+      status: 'new',
+      emoji: '🌍',
+      earnings: sal !== 'Competitive' ? sal : 'Competitive salary',
+      earningLevel: 'medium',
+      trustScore: 8.8,
+      rating: 4.4,
+      reviews: 0,
+      country: j.candidate_required_location || 'Worldwide',
+      devices: 'desktop',
+      payment: ['bank'],
+      minWithdraw: 'Monthly salary',
+      isFree: true,
+      difficulty: 'Medium',
+      timeRequired: j.job_type || 'Full-time',
+      url: j.url,
+      tags: [j.category, 'remote', 'remotive'].filter(Boolean).slice(0,4),
+      source: 'remotive',
+      publishedAt: j.publication_date ? new Date(j.publication_date).toISOString() : new Date().toISOString(),
+      views: 0
+    };
+  });
+}
+
+// ── 3. Jobicy — More remote jobs ────────────────────────────────
+async function fetchJobicy() {
+  const res = await fetch('https://jobicy.com/api/v0/remote-jobs?count=20&geo=worldwide', {
+    headers: { 'User-Agent': 'EarnRadar/4.0' }
+  });
+  const data = await res.json();
+  const jobs = (data.jobs || []);
+
+  return jobs.slice(0, 20).map(j => {
+    const desc = (j.jobDescription || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+    const cat = /design/i.test(j.jobIndustry) ? 'freelance'
+      : /tech|software|data|ai/i.test(j.jobIndustry) ? 'ai'
+      : 'remote';
+
+    return {
+      id: 'jobicy_' + j.id,
+      title: j.jobTitle + ' at ' + j.companyName,
+      description: desc.substring(0, 200) || 'Remote job at ' + j.companyName,
+      fullDescription: desc.substring(0, 800) || 'Remote opportunity at ' + j.companyName,
+      category: cat,
+      status: 'new',
+      emoji: '🎯',
+      earnings: j.annualSalaryMin && j.annualSalaryMax
+        ? '$' + Math.round(j.annualSalaryMin/1000) + 'k–$' + Math.round(j.annualSalaryMax/1000) + 'k/yr'
+        : 'Competitive',
+      earningLevel: j.annualSalaryMin > 100000 ? 'high' : 'medium',
+      trustScore: 8.5,
+      rating: 4.2,
+      reviews: 0,
+      country: j.jobGeo || 'Worldwide',
+      devices: 'desktop',
+      payment: ['bank'],
+      minWithdraw: 'Monthly salary',
+      isFree: true,
+      difficulty: 'Medium',
+      timeRequired: j.jobType || 'Full-time',
+      url: j.url,
+      tags: [j.jobIndustry, 'remote', 'jobicy'].filter(Boolean).slice(0,4),
+      source: 'jobicy',
+      publishedAt: j.pubDate ? new Date(j.pubDate).toISOString() : new Date().toISOString(),
+      views: 0
+    };
+  });
+}
+
+// ── 4. Hacker News — "Who's Hiring" + Bounties ──────────────────
 async function fetchHN() {
-  const kw=['earn','money','income','freelance','remote','passive','grant','bounty'];
+  const kw = ['earn','money','freelance','bounty','grant','passive income','side project','pay','paid','hiring'];
   const res = await fetch('https://hacker-news.firebaseio.com/v0/topstories.json');
   const ids = await res.json();
-  const stories = await Promise.allSettled(ids.slice(0,25).map(id=>
-    fetch('https://hacker-news.firebaseio.com/v0/item/'+id+'.json').then(r=>r.json())
-  ));
-  return stories.filter(s=>s.status==='fulfilled'&&s.value&&s.value.url).map(s=>s.value)
-    .filter(s=>kw.some(k=>(s.title||'').toLowerCase().includes(k)))
-    .map(s=>({id:'hn_'+s.id,title:s.title,description:'Hacker News — '+s.score+' pts',
-      fullDescription:s.title,category:'other',status:s.score>200?'trending':'new',emoji:'💡',
-      earnings:'Variable',earningLevel:'medium',trustScore:7.5,rating:Math.min(5,3+s.score/500),
-      reviews:s.descendants||0,country:'Worldwide',devices:'both',payment:['paypal'],
-      minWithdraw:'Varies',isFree:true,difficulty:'Medium',timeRequired:'Varies',
-      url:s.url,tags:['hacker-news'],source:'hackernews',
-      publishedAt:new Date(s.time*1000).toISOString(),views:s.score||0}));
+
+  const stories = await Promise.allSettled(
+    ids.slice(0, 40).map(id =>
+      fetch('https://hacker-news.firebaseio.com/v0/item/' + id + '.json').then(r => r.json())
+    )
+  );
+
+  return stories
+    .filter(s => s.status === 'fulfilled' && s.value && s.value.url && s.value.title)
+    .map(s => s.value)
+    .filter(s => kw.some(k => (s.title || '').toLowerCase().includes(k)))
+    .slice(0, 10)
+    .map(s => {
+      const isBounty = /bounty/i.test(s.title);
+      const isGrant = /grant|fund/i.test(s.title);
+      const cat = isBounty ? 'freelance' : isGrant ? 'grants' : 'other';
+
+      return {
+        id: 'hn_' + s.id,
+        title: s.title,
+        description: 'Hacker News — ' + s.score + ' points · ' + (s.descendants || 0) + ' comments',
+        fullDescription: s.title + '\n\nDiscussed on Hacker News with ' + s.score + ' points and ' + (s.descendants || 0) + ' comments. Visit the link to read the full story and discussion.',
+        category: cat,
+        status: s.score > 300 ? 'trending' : 'new',
+        emoji: isBounty ? '💰' : isGrant ? '🎓' : '💡',
+        earnings: isBounty ? 'Variable bounty' : isGrant ? 'Variable grant' : 'Varies',
+        earningLevel: 'medium',
+        trustScore: 7.5,
+        rating: Math.min(5, 3 + s.score / 600),
+        reviews: s.descendants || 0,
+        country: 'Worldwide',
+        devices: 'both',
+        payment: ['paypal', 'bank'],
+        minWithdraw: 'Varies',
+        isFree: true,
+        difficulty: 'Medium',
+        timeRequired: 'Varies',
+        url: s.url,
+        tags: ['hacker-news', cat],
+        source: 'hackernews',
+        publishedAt: new Date(s.time * 1000).toISOString(),
+        views: s.score || 0
+      };
+    });
 }
+
+// ── 5. Reddit — Real earning communities ────────────────────────
 async function fetchReddit() {
-  const subs=[{name:'beermoney',cat:'surveys'},{name:'passive_income',cat:'other'},{name:'WorkOnline',cat:'remote'}];
-  const results=[];
-  for(const sub of subs){
-    try{
-      const res=await fetch('https://www.reddit.com/r/'+sub.name+'/hot.json?limit=5',{headers:{'User-Agent':'EarnRadar/4.0'}});
-      const data=await res.json();
-      (data.data&&data.data.children?data.data.children:[]).filter(p=>p.data.score>30).forEach(p=>{
-        results.push({id:'reddit_'+p.data.id,title:p.data.title,
-          description:(p.data.selftext||p.data.title).substring(0,200),
-          fullDescription:p.data.selftext||p.data.title,
-          category:sub.cat,status:p.data.score>300?'trending':'new',emoji:'🌐',
-          earnings:'Variable',earningLevel:'medium',trustScore:7.0,
-          rating:Math.min(5,3.5+p.data.upvote_ratio),reviews:p.data.num_comments,
-          country:'Worldwide',devices:'both',payment:['paypal'],minWithdraw:'Varies',
-          isFree:true,difficulty:'Medium',timeRequired:'Varies',
-          url:'https://reddit.com'+p.data.permalink,tags:[sub.name],source:'reddit',
-          publishedAt:new Date(p.data.created_utc*1000).toISOString(),views:p.data.score});
+  const subs = [
+    { name: 'beermoney',      cat: 'surveys',   emoji: '🍺', label: 'BeerMoney' },
+    { name: 'WorkOnline',     cat: 'remote',    emoji: '💻', label: 'Work Online' },
+    { name: 'slavelabour',    cat: 'freelance', emoji: '🎨', label: 'Slave Labour (Gigs)' },
+    { name: 'passive_income', cat: 'affiliate', emoji: '📈', label: 'Passive Income' },
+    { name: 'beermoneyuk',    cat: 'surveys',   emoji: '🇬🇧', label: 'BeerMoney UK' },
+  ];
+  const results = [];
+
+  for (const sub of subs) {
+    try {
+      const res = await fetch(
+        'https://www.reddit.com/r/' + sub.name + '/hot.json?limit=6',
+        { headers: { 'User-Agent': 'EarnRadar/4.0' } }
+      );
+      const data = await res.json();
+      const posts = (data.data && data.data.children ? data.data.children : [])
+        .filter(p => p.data.score > 20 && !p.data.stickied);
+
+      posts.forEach(p => {
+        const d = p.data;
+        const text = (d.selftext || d.title || '').substring(0, 200);
+        results.push({
+          id: 'reddit_' + d.id,
+          title: d.title,
+          description: text || 'Discussion from r/' + sub.name,
+          fullDescription: d.selftext || d.title || 'Visit the Reddit thread for full details.',
+          category: sub.cat,
+          status: d.score > 500 ? 'trending' : 'new',
+          emoji: sub.emoji,
+          earnings: 'Community-reported earnings vary',
+          earningLevel: 'low',
+          trustScore: 7.0,
+          rating: Math.min(5, 3 + d.upvote_ratio * 1.5),
+          reviews: d.num_comments,
+          country: sub.name === 'beermoneyuk' ? 'United Kingdom' : 'Worldwide',
+          devices: 'both',
+          payment: ['paypal', 'gift'],
+          minWithdraw: 'Varies',
+          isFree: true,
+          difficulty: 'Easy',
+          timeRequired: 'Part-time',
+          url: 'https://reddit.com' + d.permalink,
+          tags: ['reddit', sub.name, sub.cat],
+          source: 'reddit',
+          publishedAt: new Date(d.created_utc * 1000).toISOString(),
+          views: d.score
+        });
       });
-    }catch(e){}
+    } catch(e) {}
   }
   return results;
 }
-async function fetchRemoteOK() {
-  const res=await fetch('https://remoteok.com/api',{headers:{'User-Agent':'EarnRadar/4.0'}});
-  const jobs=await res.json();
-  return jobs.slice(1,10).filter(j=>j.position).map(j=>({
-    id:'rok_'+j.id,title:j.position+' @ '+j.company,
-    description:(j.description||'').replace(/<[^>]+>/g,'').substring(0,200),
-    fullDescription:(j.description||'').replace(/<[^>]+>/g,''),
-    category:'remote',status:'new',emoji:'💻',
-    earnings:j.salary_min?'$'+j.salary_min.toLocaleString()+'+/yr':'Competitive',
-    earningLevel:'medium',trustScore:8.5,rating:4.2,reviews:0,
-    country:'Worldwide (Remote)',devices:'desktop',payment:['bank'],minWithdraw:'Monthly',
-    isFree:true,difficulty:'Medium',timeRequired:'Full-time',
-    url:j.url,tags:(j.tags||[]).slice(0,4),source:'remoteok',
-    publishedAt:j.date||new Date().toISOString(),views:0}));
+
+// ── 6. We Work Remotely — RSS Feed ──────────────────────────────
+async function fetchWWR() {
+  const feeds = [
+    'https://weworkremotely.com/categories/remote-programming-jobs.rss',
+    'https://weworkremotely.com/categories/remote-design-jobs.rss',
+    'https://weworkremotely.com/categories/remote-copywriting-jobs.rss',
+  ];
+  const results = [];
+
+  for (const feedUrl of feeds) {
+    try {
+      const res = await fetch(feedUrl, { headers: { 'User-Agent': 'EarnRadar/4.0' } });
+      const text = await res.text();
+      const items = parseRSS(text, 15);
+      const cat = feedUrl.includes('design') ? 'freelance' : feedUrl.includes('copy') ? 'freelance' : 'remote';
+      const emoji = feedUrl.includes('design') ? '🎨' : feedUrl.includes('copy') ? '✍️' : '💻';
+
+      items.forEach(item => {
+        const desc = item.description.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+        results.push({
+          id: 'wwr_' + btoa(item.link).substring(0, 12),
+          title: item.title,
+          description: desc.substring(0, 200) || item.title,
+          fullDescription: desc.substring(0, 800) || item.title,
+          category: cat,
+          status: 'new',
+          emoji: emoji,
+          earnings: 'Competitive (see listing)',
+          earningLevel: 'medium',
+          trustScore: 9.2,
+          rating: 4.5,
+          reviews: 0,
+          country: 'Worldwide (Remote)',
+          devices: 'desktop',
+          payment: ['bank'],
+          minWithdraw: 'Monthly salary',
+          isFree: true,
+          difficulty: 'Medium',
+          timeRequired: 'Full-time',
+          url: item.link,
+          tags: ['we-work-remotely', cat, 'remote'],
+          source: 'weworkremotely',
+          publishedAt: item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString(),
+          views: 0
+        });
+      });
+    } catch(e) {}
+  }
+  return results;
+}
+
+// ── 7. Crypto Jobs List — Web3 / Crypto earning opportunities ───
+async function fetchCryptoJobs() {
+  try {
+    const res = await fetch('https://cryptojobslist.com/rss.xml', {
+      headers: { 'User-Agent': 'EarnRadar/4.0' }
+    });
+    const text = await res.text();
+    const items = parseRSS(text, 15);
+
+    return items.map(item => {
+      const desc = item.description.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+      return {
+        id: 'cjl_' + btoa(item.link).substring(0, 12),
+        title: item.title,
+        description: desc.substring(0, 200) || item.title,
+        fullDescription: desc.substring(0, 800) || item.title,
+        category: 'crypto',
+        status: 'new',
+        emoji: '⛓️',
+        earnings: 'Crypto + Fiat salary',
+        earningLevel: 'high',
+        trustScore: 8.2,
+        rating: 4.1,
+        reviews: 0,
+        country: 'Worldwide (Remote)',
+        devices: 'desktop',
+        payment: ['crypto', 'bank'],
+        minWithdraw: 'Monthly',
+        isFree: true,
+        difficulty: 'Advanced',
+        timeRequired: 'Full-time',
+        url: item.link,
+        tags: ['crypto', 'web3', 'blockchain', 'defi'],
+        source: 'cryptojobslist',
+        publishedAt: item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString(),
+        views: 0
+      };
+    });
+  } catch(e) { return []; }
+}
+
+// ── 8. GitHub Bounties — Open source paid issues ─────────────────
+async function fetchGitHubBounties() {
+  try {
+    // Search for repos/issues tagged with bounty
+    const res = await fetch(
+      'https://api.github.com/search/issues?q=label:bounty+state:open+is:issue&sort=updated&per_page=15',
+      { headers: { 'User-Agent': 'EarnRadar/4.0', 'Accept': 'application/vnd.github.v3+json' } }
+    );
+    const data = await res.json();
+    const issues = data.items || [];
+
+    return issues.map(issue => {
+      // Try to extract bounty amount from title/body
+      const amountMatch = (issue.title + ' ' + (issue.body || '')).match(/\$[\d,]+|\d+\s*(USD|ETH|USDT)/i);
+      const amount = amountMatch ? amountMatch[0] : 'Variable bounty';
+
+      return {
+        id: 'gh_' + issue.id,
+        title: '💰 Bounty: ' + issue.title.substring(0, 80),
+        description: (issue.body || issue.title).replace(/\s+/g, ' ').substring(0, 200),
+        fullDescription: (issue.body || issue.title).replace(/\s+/g, ' ').substring(0, 800),
+        category: 'freelance',
+        status: 'new',
+        emoji: '⚡',
+        earnings: amount,
+        earningLevel: 'variable',
+        trustScore: 8.0,
+        rating: 4.0,
+        reviews: issue.comments || 0,
+        country: 'Worldwide',
+        devices: 'desktop',
+        payment: ['crypto', 'paypal', 'bank'],
+        minWithdraw: 'Varies',
+        isFree: true,
+        difficulty: 'Advanced',
+        timeRequired: 'Per task',
+        url: issue.html_url,
+        tags: ['github', 'bounty', 'open-source', 'coding'],
+        source: 'github',
+        publishedAt: issue.updated_at || new Date().toISOString(),
+        views: issue.comments || 0
+      };
+    });
+  } catch(e) { return []; }
+}
+
+// ── RSS Parser utility ───────────────────────────────────────────
+function parseRSS(xml, limit) {
+  const items = [];
+  const rx = /<item>([\s\S]*?)<\/item>/g;
+  let match;
+  while ((match = rx.exec(xml)) !== null && items.length < (limit || 20)) {
+    const block = match[1];
+    const get = (tag) => {
+      const m = new RegExp('<' + tag + '[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/' + tag + '>', 'i').exec(block);
+      return m ? m[1].trim() : '';
+    };
+    const link = get('link') || (/<link>(.*?)<\/link>/i.exec(block) || [])[1] || '';
+    const title = get('title');
+    if (title && link) {
+      items.push({
+        title,
+        link,
+        description: get('description'),
+        pubDate: get('pubDate')
+      });
+    }
+  }
+  return items;
 }
